@@ -1,0 +1,27 @@
+[package]
+name = "watson-vision"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+apriltag = "0.4"
+tokio = { version = "1", features = ["full", "parking_lot"] }
+rocket = "0.5.0"
+once_cell = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+nalgebra = "0.32"
+opencv = { version = "0.88.8", features = ["clang-runtime"] }
+parking_lot = "0.12"
+futures-util = "0.3.25"
+thiserror = "1.0.38"
+rand = "0.8.5"
+rmp = { version = "0.8" }
+rmp-serde = { version = "1.1.1" }
+rmpv = { version = "1.0", features = ["with-serde"] }
+tokio-tungstenite = { version = "0.21.0" }
+crossbeam-channel = "0.5"
+binrw = "0.13"
