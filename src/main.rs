@@ -77,8 +77,7 @@ async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
     loop {
         let data = data_recv.recv()?;
         let data = rmpv::Value::Binary(data);
-        let fut = client
-            .publish_value(&publisher, &data);
+        let fut = client.publish_value(&publisher, &data);
         tokio::select! {
             res = fut => {
                 res?;
@@ -97,9 +96,11 @@ fn rocket() -> _ {
     *APRILTAG_THREAD_JOINHANDLE.blocking_lock() = Some(std::thread::spawn(move || {
         let data_send = data_send;
         let send: Sender<Vec<u8>> = send;
-        let config: config::Config =
-            serde_json::from_str(include_str!("../config.json")).unwrap();
+        let config: config::Config = serde_json::from_str(include_str!("../config.json")).unwrap();
+        #[cfg(not(target_os = "linux"))]
         let mut capture = pipeline::capture::TestCapture::default();
+        #[cfg(target_os = "linux")]
+        let mut capture = pipeline::capture::GStreamerCapture::default();
         let mut fiducial_detector =
             fiducial_detector::ArucoFiducialDetector::new(opencv::aruco::DICT_APRILTAG_36h11);
         let mut pose_estimator = pipeline::camera_pose_estimator::MultiTargetCameraPoseEstimator;
