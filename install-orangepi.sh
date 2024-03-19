@@ -1,5 +1,3 @@
-sudo apt install libopencv-dev clang libclang-dev -y
+sudo apt update && TZ=Us/Denver DEBIAN_FRONTEND=noninteractive sudo apt install libopencv-dev clang libclang-dev curl build-essential -y
 curl https://sh.rustup.rs -sSf | bash -s -- -y
-echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
-source $HOME/.bashrc
-cargo run -p setup-orangepi
+$HOME/.cargo/bin/cargo run -p setup-orangepi
