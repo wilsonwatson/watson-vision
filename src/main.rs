@@ -58,7 +58,7 @@ static APRILTAG_THREAD_JOINHANDLE: Lazy<Arc<tokio::sync::Mutex<Option<JoinHandle
     Lazy::new(|| Arc::new(tokio::sync::Mutex::new(None)));
 
 async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
-    let config: config::Config = serde_json::from_str(&std::fs::read_to_string("config.json")?)?;
+    let config: config::Config = serde_json::from_str(include_str!("../config.json"))?;
     let server_ip = config.server_ip;
     let name = config.camera_name.clone();
     let client =
@@ -98,7 +98,7 @@ fn rocket() -> _ {
         let data_send = data_send;
         let send: Sender<Vec<u8>> = send;
         let config: config::Config =
-            serde_json::from_str(&std::fs::read_to_string("config.json").unwrap()).unwrap();
+            serde_json::from_str(include_str!("../config.json")).unwrap();
         let mut capture = pipeline::capture::TestCapture::default();
         let mut fiducial_detector =
             fiducial_detector::ArucoFiducialDetector::new(opencv::aruco::DICT_APRILTAG_36h11);

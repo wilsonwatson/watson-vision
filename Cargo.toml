@@ -25,3 +25,8 @@ rmpv = { version = "1.0", features = ["with-serde"] }
 tokio-tungstenite = { version = "0.21.0" }
 crossbeam-channel = "0.5"
 binrw = "0.13"
+
+[workspace]
+
+resolver = "2"
+members = ["setup-orangepi", "setup-docker"]
