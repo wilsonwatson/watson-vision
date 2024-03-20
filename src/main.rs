@@ -105,7 +105,7 @@ fn rocket() -> _ {
                 Ok(false) => {}
                 _ => break,
             }
-            if let Err(e) = std::panic::catch_unwind(|| {
+            if let Err(_e) = std::panic::catch_unwind(|| {
                 let config: config::Config =
                     serde_json::from_str(include_str!("../config.json")).unwrap();
                 #[cfg(not(target_os = "linux"))]

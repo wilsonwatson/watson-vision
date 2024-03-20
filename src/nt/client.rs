@@ -613,7 +613,7 @@ async fn setup_socket(
     panic_sender: oneshot::Sender<super::Error>,
 ) -> Result<(), super::Error> {
     let mut request = format!(
-        "ws://{}/nt/rust-client-{}",
+        "ws://{}/nt/watson-vision-{}",
         client.upgrade().unwrap().server_addr,
         client.upgrade().unwrap().id,
     )
