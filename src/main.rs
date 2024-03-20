@@ -75,6 +75,10 @@ async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
         )
         .await?;
     loop {
+        match APRILTAG_THREAD_STOP.lock().map(|x| *x) {
+            Ok(false) => {}
+            _ => break Ok(()),
+        }
         let data = data_recv.recv()?;
         let data = rmpv::Value::Binary(data);
         let fut = client.publish_value(&publisher, &data);
@@ -96,46 +100,62 @@ fn rocket() -> _ {
     *APRILTAG_THREAD_JOINHANDLE.blocking_lock() = Some(std::thread::spawn(move || {
         let data_send = data_send;
         let send: Sender<Vec<u8>> = send;
-        let config: config::Config = serde_json::from_str(include_str!("../config.json")).unwrap();
-        #[cfg(not(target_os = "linux"))]
-        let mut capture = pipeline::capture::TestCapture::default();
-        #[cfg(target_os = "linux")]
-        let mut capture = pipeline::capture::GStreamerCapture::default();
-        let mut fiducial_detector =
-            fiducial_detector::ArucoFiducialDetector::new(opencv::aruco::DICT_APRILTAG_36h11);
-        let mut pose_estimator = pipeline::camera_pose_estimator::MultiTargetCameraPoseEstimator;
-        let mut start = Instant::now();
         loop {
             match APRILTAG_THREAD_STOP.lock().map(|x| *x) {
                 Ok(false) => {}
                 _ => break,
             }
-            let next = Instant::now();
-            let _fps = 1.0 / next.duration_since(start).as_secs_f64();
-            start = next;
-            let (retval, mut frame) = capture.get_frame(&config);
-            if !retval {
-                std::thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-            let tags = fiducial_detector.detect_fiducial(&mut frame, &config);
-            if let Some(pose) = pose_estimator.solve_camera_pose(tags, &config) {
-                let mut io = std::io::Cursor::new(Vec::with_capacity(44));
-                pose.write_be(&mut io).unwrap();
-                _ = data_send.send_timeout(io.into_inner(), Duration::from_millis(8));
-            }
+            if let Err(e) = std::panic::catch_unwind(|| {
+                let config: config::Config =
+                    serde_json::from_str(include_str!("../config.json")).unwrap();
+                #[cfg(not(target_os = "linux"))]
+                let mut capture = pipeline::capture::TestCapture::default();
+                #[cfg(target_os = "linux")]
+                let mut capture = pipeline::capture::GStreamerCapture::default();
+                let mut fiducial_detector = fiducial_detector::ArucoFiducialDetector::new(
+                    opencv::aruco::DICT_APRILTAG_36h11,
+                );
+                let mut pose_estimator =
+                    pipeline::camera_pose_estimator::MultiTargetCameraPoseEstimator;
+                let mut start = Instant::now();
+                loop {
+                    match APRILTAG_THREAD_STOP.lock().map(|x| *x) {
+                        Ok(false) => {}
+                        _ => break,
+                    }
+                    let next = Instant::now();
+                    let _fps = 1.0 / next.duration_since(start).as_secs_f64();
+                    start = next;
+                    let (retval, mut frame) = capture.get_frame(&config);
+                    if !retval {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    let tags = fiducial_detector.detect_fiducial(&mut frame, &config);
+                    if let Some(pose) = pose_estimator.solve_camera_pose(tags, &config) {
+                        let mut io = std::io::Cursor::new(Vec::with_capacity(44));
+                        pose.write_be(&mut io).unwrap();
+                        _ = data_send.send_timeout(io.into_inner(), Duration::from_millis(4));
+                    }
 
-            let mut data = VectorOfu8::new();
-            opencv::imgcodecs::imencode_def(".jpg", &frame, &mut data).unwrap();
-            let data = (*b"--FRAME\r\nContent-Type: image/jpeg\r\n\r\n")
-                .into_iter()
-                .chain(data)
-                .chain(*b"\r\n")
-                .collect::<Vec<_>>();
-            _ = send.send_timeout(data.to_vec(), Duration::from_millis(8));
+                    let mut data = VectorOfu8::new();
+                    opencv::imgcodecs::imencode_def(".jpg", &frame, &mut data).unwrap();
+                    let data = (*b"--FRAME\r\nContent-Type: image/jpeg\r\n\r\n")
+                        .into_iter()
+                        .chain(data)
+                        .chain(*b"\r\n")
+                        .collect::<Vec<_>>();
+                    _ = send.send_timeout(data.to_vec(), Duration::from_millis(8));
+                }
+            }) {
+                eprintln!("Error in camera stream");
+            }
         }
     }));
-    rocket::build()
+    let figment = rocket::Config::figment()
+        .merge(("address", "0.0.0.0"))
+        .merge(("port", 3000));
+    rocket::custom(figment)
         .manage(recv)
         .attach(AdHoc::on_liftoff("Startup NetworkTables", |_| {
             Box::pin(async move {
