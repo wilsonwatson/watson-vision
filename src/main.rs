@@ -63,6 +63,18 @@ async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
     let name = config.camera_name.clone();
     let client =
         nt::Client::try_new(SocketAddrV4::new(Ipv4Addr::from_str(&server_ip)?, 5810)).await?;
+    let publisher = client.publish_topic(
+        format!("/CameraPublisher/{}/streams", name),
+        nt::Type::StringArray,
+        Some(PublishProperties {
+            persistent: Some(false),
+            retained: Some(true),
+            rest: None,
+        }),
+    )
+    .await?;
+    let my_local_ip = local_ip_address::local_ip()?.to_string();
+    client.publish_value(&publisher, &rmpv::Value::Array(vec![rmpv::Value::String(format!("mjpeg:http://{}:{}/test.mjpeg", my_local_ip, config.stream_port).into())])).await?;
     let publisher = client
         .publish_topic(
             format!("/watson/{}", name),
@@ -152,9 +164,11 @@ fn rocket() -> _ {
             }
         }
     }));
+    let config: config::Config =
+                    serde_json::from_str(include_str!("../config.json")).unwrap();
     let figment = rocket::Config::figment()
         .merge(("address", "0.0.0.0"))
-        .merge(("port", 3000));
+        .merge(("port", config.stream_port));
     rocket::custom(figment)
         .manage(recv)
         .attach(AdHoc::on_liftoff("Startup NetworkTables", |_| {

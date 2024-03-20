@@ -106,6 +106,10 @@ impl CameraPoseEstimator for MultiTargetCameraPoseEstimator {
                 return None;
             }
             let field_to_tag_pose = tag_poses[0];
+            if tvecs.len() < 2 || rvecs.len() < 2 {
+                println!("Invalid tvecs/rvecs");
+                return None;
+            }
             let camera_to_tag_pose_0 =
                 isometry_from_opencv(tvecs.get(0).unwrap(), rvecs.get(0).unwrap());
             let camera_to_tag_pose_1 =
@@ -140,8 +144,9 @@ impl CameraPoseEstimator for MultiTargetCameraPoseEstimator {
                 eprintln!("{}", e);
                 return None;
             }
-            
-            let camera_to_field_pose = isometry_from_opencv(tvecs.get(0).unwrap(), rvecs.get(0).unwrap());
+
+            let camera_to_field_pose =
+                isometry_from_opencv(tvecs.get(0).unwrap(), rvecs.get(0).unwrap());
             let field_to_camera = camera_to_field_pose.inverse();
             return Some(CameraPoseObservation {
                 tag_ids,
