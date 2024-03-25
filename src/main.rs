@@ -1,9 +1,5 @@
 use std::{
-    net::{Ipv4Addr, SocketAddrV4},
-    str::FromStr,
-    sync::{Arc, Mutex},
-    thread::JoinHandle,
-    time::{Duration, Instant},
+    net::{Ipv4Addr, SocketAddrV4}, ops::Deref, str::FromStr, sync::{Arc, Mutex}, thread::JoinHandle, time::{Duration, Instant}
 };
 
 use binrw::BinWrite;
@@ -57,24 +53,38 @@ static APRILTAG_THREAD_STOP: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mute
 static APRILTAG_THREAD_JOINHANDLE: Lazy<Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>> =
     Lazy::new(|| Arc::new(tokio::sync::Mutex::new(None)));
 
-async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
-    let config: config::Config = serde_json::from_str(include_str!("../config.json"))?;
+static NT_TIME: Lazy<Arc<Mutex<(u32, Instant)>>> = Lazy::new(|| Arc::new(Mutex::new((0, Instant::now()))));
+
+async fn nt_thread(data_recv: &Receiver<Vec<u8>>, config_content: &str) -> anyhow::Result<()> {
+    let config: config::Config = serde_json::from_str(config_content)?;
     let server_ip = config.server_ip;
     let name = config.camera_name.clone();
     let client =
         nt::Client::try_new(SocketAddrV4::new(Ipv4Addr::from_str(&server_ip)?, 5810)).await?;
-    let publisher = client.publish_topic(
-        format!("/CameraPublisher/{}/streams", name),
-        nt::Type::StringArray,
-        Some(PublishProperties {
-            persistent: Some(false),
-            retained: Some(true),
-            rest: None,
-        }),
-    )
-    .await?;
+    let publisher = client
+        .publish_topic(
+            format!("/CameraPublisher/{}/streams", name),
+            nt::Type::StringArray,
+            Some(PublishProperties {
+                persistent: Some(false),
+                retained: Some(true),
+                rest: None,
+            }),
+        )
+        .await?;
     let my_local_ip = local_ip_address::local_ip()?.to_string();
-    client.publish_value(&publisher, &rmpv::Value::Array(vec![rmpv::Value::String(format!("mjpeg:http://{}:{}/test.mjpeg", my_local_ip, config.stream_port).into())])).await?;
+    client
+        .publish_value(
+            &publisher,
+            &rmpv::Value::Array(vec![rmpv::Value::String(
+                format!(
+                    "mjpeg:http://{}:{}/test.mjpeg",
+                    my_local_ip, config.stream_port
+                )
+                .into(),
+            )]),
+        )
+        .await?;
     let publisher = client
         .publish_topic(
             format!("/watson/{}", name),
@@ -91,6 +101,7 @@ async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
             Ok(false) => {}
             _ => break Ok(()),
         }
+        *NT_TIME.lock().unwrap() = (client.server_time(), Instant::now());
         let data = data_recv.recv()?;
         let data = rmpv::Value::Binary(data);
         let fut = client.publish_value(&publisher, &data);
@@ -107,9 +118,17 @@ async fn nt_thread(data_recv: &Receiver<Vec<u8>>) -> anyhow::Result<()> {
 
 #[launch]
 fn rocket() -> _ {
+    let config_content = std::fs::read_to_string(
+        std::env::args()
+            .next()
+            .expect("watson-vision must be called with at least one argument"),
+    )
+    .expect("the first argument must be a path to a config.json");
     let (send, recv) = crossbeam_channel::bounded(2);
     let (data_send, data_recv) = crossbeam_channel::bounded(0);
+    let cfg2 = config_content.clone();
     *APRILTAG_THREAD_JOINHANDLE.blocking_lock() = Some(std::thread::spawn(move || {
+        let config_content = cfg2;
         let data_send = data_send;
         let send: Sender<Vec<u8>> = send;
         loop {
@@ -117,9 +136,10 @@ fn rocket() -> _ {
                 Ok(false) => {}
                 _ => break,
             }
+            let config_content = config_content.clone();
             if let Err(_e) = std::panic::catch_unwind(|| {
                 let config: config::Config =
-                    serde_json::from_str(include_str!("../config.json")).unwrap();
+                    serde_json::from_str(&config_content).unwrap();
                 #[cfg(not(target_os = "linux"))]
                 let mut capture = pipeline::capture::TestCapture::default();
                 #[cfg(target_os = "linux")]
@@ -146,7 +166,9 @@ fn rocket() -> _ {
                     let tags = fiducial_detector.detect_fiducial(&mut frame, &config);
                     if let Some(pose) = pose_estimator.solve_camera_pose(tags, &config) {
                         let mut io = std::io::Cursor::new(Vec::with_capacity(44));
-                        pose.write_be(&mut io).unwrap();
+                        let (server_time, instant) = NT_TIME.lock().unwrap().to_owned();
+                        let time = Instant::now().duration_since(instant).as_micros() as u32 + server_time;
+                        pose.write_be_args(&mut io, (time,)).unwrap();
                         _ = data_send.send_timeout(io.into_inner(), Duration::from_millis(4));
                     }
 
@@ -164,8 +186,7 @@ fn rocket() -> _ {
             }
         }
     }));
-    let config: config::Config =
-                    serde_json::from_str(include_str!("../config.json")).unwrap();
+    let config: config::Config = serde_json::from_str(&config_content).unwrap();
     let figment = rocket::Config::figment()
         .merge(("address", "0.0.0.0"))
         .merge(("port", config.stream_port));
@@ -176,8 +197,9 @@ fn rocket() -> _ {
                 let data_recv = data_recv;
                 tokio::spawn(async move {
                     let data_recv = data_recv;
+                    let config_content = config_content.clone();
                     loop {
-                        if let Err(e) = nt_thread(&data_recv).await {
+                        if let Err(e) = nt_thread(&data_recv, &config_content).await {
                             eprintln!("NetworkTables error: {}", e);
                             tokio::time::sleep(Duration::from_millis(500)).await;
                         }

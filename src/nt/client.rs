@@ -26,6 +26,12 @@ pub struct Client {
     inner: Arc<InnerClient>,
 }
 
+impl Client {
+    pub fn server_time(&self) -> u32 {
+        self.inner.server_time()
+    }
+}
+
 type WebSocket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug)]
