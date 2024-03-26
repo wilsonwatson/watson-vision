@@ -1,5 +1,5 @@
 use std::{
-    net::{Ipv4Addr, SocketAddrV4}, ops::Deref, str::FromStr, sync::{Arc, Mutex}, thread::JoinHandle, time::{Duration, Instant}
+    net::{Ipv4Addr, SocketAddrV4}, str::FromStr, sync::{Arc, Mutex}, thread::JoinHandle, time::{Duration, Instant}
 };
 
 use binrw::BinWrite;
@@ -120,6 +120,7 @@ async fn nt_thread(data_recv: &Receiver<Vec<u8>>, config_content: &str) -> anyho
 fn rocket() -> _ {
     let config_content = std::fs::read_to_string(
         std::env::args()
+            .skip(1)
             .next()
             .expect("watson-vision must be called with at least one argument"),
     )

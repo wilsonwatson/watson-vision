@@ -20,6 +20,9 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_vecn")]
     pub distortion_coefficients: opencv::core::Mat,
     pub tag_layout: TagLayout,
+
+    #[serde(default)]
+    pub rotate180: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
